@@ -214,22 +214,24 @@ dune <-
          !is.na(relic),
          !is.na(delivered),
          !(relic %in% c(756, 711, 624))) %>%
-  mutate(delivered = as.integer(delivered - as.Date("2025-04-14")))
+  mutate(delivered = as.integer(delivered - as.Date("2025-04-14"))) %>%
+  arrange(relic)
 ```
 
 ```{r}
+# trying it with truncated real data
 stan_data_dune <- list(
-  N = 720,
-  N_obs = nrow(dune),
-  relic_obs = dune$relic,
-  relic_unobs = setdiff(1:720, dune$relic),
-  delivery_obs = dune$delivered
+  N = 720 - 500,
+  N_obs = nrow(dune[dune$relic >= 500, ]),
+  relic_obs = dune$relic[dune$relic >= 500] - 500,
+  relic_unobs = setdiff(1:(720 - 500), dune$relic[dune$relic >= 500] - 500),
+  delivery_obs = dune$delivered[dune$relic >= 500] - 335
 )
 
 fit_dune <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data_dune,
-  iter = 1000, chains = 1, cores = 1, refresh = 1000
+  iter = 2000, chains = 1, cores = 1, refresh = 1000
 )
 ```
 
@@ -270,6 +272,13 @@ for (i in 1:((nrow(cred) - 1)/2)) {
 lines(x, rep(cred[5, ], each = 2), 
       col = c_dark, lwd = 1)
 points(x = stan_data_dune$relic_obs, 
-       y = rep(-20, times = stan_data_dune$N_obs), #stan_data_dune$delivery,
+       y = stan_data_dune$delivery,
+       col = c_purple_trans, pch = 19)
+
+plot(x = 1, type = "n", 
+     xlim = c(0, max(stan_data_dune$relic_obs)),
+     ylim = c(0, max(stan_data_dune$delivery)))
+points(x = stan_data_dune$relic_obs, 
+       y = stan_data_dune$delivery,
        col = c_purple_trans, pch = 19)
 ```

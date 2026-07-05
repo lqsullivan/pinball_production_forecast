@@ -7,7 +7,7 @@ data {
 }
 
 parameters {
-  real prod_mu;
+  real<lower=0> prod_mu;
   real<lower=0> prod_sigma;
   real<lower=0> ship_sigma;
   real<lower=0> ship_lambda;
