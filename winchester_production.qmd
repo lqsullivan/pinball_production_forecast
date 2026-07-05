@@ -1,0 +1,152 @@
+---
+title: "Winchester Mystery House Production"
+# subtitle: ""
+# bibliography: linen_quality.bib
+format: 
+  html:
+    mainfont: Quattrocento Sans
+    sansfont: Cinzel
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    fig-cap-location: margin
+execute: 
+  echo: false
+  message: false
+  warning: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| include: false
+
+library(tidyverse)
+library(ggtext)
+library(here)
+library(rstan)
+
+here::i_am("winchester_production.qmd")
+
+# stan options
+rstan_options(auto_write = TRUE)
+util <- new.env()
+source(here("mcmc_analysis_tools_rstan.R"), local = util)
+source(here("mcmc_visualization_tools.R"), local = util)
+
+# graphics options
+extrafont::font_import(pattern = "QuattrocentoSans", prompt = FALSE)
+extrafont::loadfonts(device = "win")
+ggplot2::theme_set(theme_minimal() +
+                     theme(text = element_text(size = 15,
+                                               family = "Quattrocento Sans"),
+                           margins = margin(10, 15, 25, 15),
+                           axis.title.x = element_text(vjust = -3),
+                           axis.title.y = element_text(vjust =  3)))
+options(knitr.table.html.attr = "quarto-disable-processing=true")
+
+# inline content
+inline <- list()
+```
+
+```{r}
+c_light <- c("#D6EBEA")
+c_light_highlight <- c("#B5DBD9")
+c_mid <- c("#92CAC6")
+c_mid_highlight <- c("#5FB2AC")
+c_dark <- c("#369F97")
+c_dark_highlight <- c("#00867B")
+
+c_dark_trans <- c("#005D5580")
+c_green_trans <- c("#D400C380")
+
+c_list <- list(c_light, c_light_highlight, c_mid, 
+                 c_mid_highlight, c_dark, c_dark_highlight)
+
+c_dune <- "#E28C37"
+c_win  <- "#43CBE1"
+```
+
+I'm excited to get my Winchester Mystery House and even though Barrels of Fun gives updates, I thought it would be a fun exercise to build my own forecast based on Pinside posts and insights from the manufacturer.
+
+# Data
+
+Based on information from David Van Es, we know there are currently two manufacturing lines, one finishing a run of 720 units of Dune that started after the announcement on 2025-04-14, the other making 525 of Winchester Mystery House after the 2025-10-13 announcement.
+
+Helpfully, some owners have been posting on Pinside when they take delivery of their games and the Relic number. I collected as much of these as I could find, including helpful ancillary information like shipping location, shipping date (where known), deliberate delays, and whether they requested an out-of-sequence Relic number.
+
+```{r}
+#| label: "load delivery data"
+delivery_raw <- read_csv(here("data/raw/delivery_data.csv"))
+```
+
+```{r}
+#| cache: true
+
+delivery_raw %>%
+  ggplot(aes(x = relic, y = delivered, group = game)) +
+  geom_point(aes(color = game),
+             size = 2.5) +
+  ggimage::geom_image(aes(image = "dune_logo.png"), 
+             x = 550,
+             y = as.Date("2026-02-01"),
+             size = 0.5) +
+  ggimage::geom_image(aes(image = "winchester_logo.png"), 
+             x = 100,
+             y = as.Date("2026-01-01"),
+             size = 0.3) +
+  scale_x_continuous(limits = c(0, NA),
+                     breaks = c(1, 250, 500)) +
+  scale_y_date(limits = as.Date(c("2025-04-14", NA)),
+               date_breaks = "2 months",
+               date_labels = "%B\n%Y") +
+  scale_color_manual(guide = "none",
+                     values = c("Dune" = "#E28C37", "Winchester" = "#43CBE1")) +
+  labs(x = "Relic Number",
+       y = "Delivery Date") +
+  theme()
+```
+
+Some things jump out.
+
+Relic numbers seem to be more-or-less sequentially assigned, with a few exceptions from requests for specific numbers and one strange Winchester number *above* 525. 
+
+The production rate looks consistent over time for Dune, but Winchester started slow (maybe expected for a new game, but Dune doesn't have that).
+
+Since we're looking at delivery, not production it makes sense that they're bounded below at the production date and have asymmetric variation. You can go pick up your game at the factory, but you can't get it before it's made, and shipping time depends on geography in a potentially complicated way.
+
+We expect that games are produced in batches, so delivery date depends on previous delivery dates, not just Relic number, but it might be ok to treat them as produced sequentially.
+
+Since we're mostly using the Relic numbers and delivery dates, we're only going to make two corrections to start with
+- Remove 'out-of-sequence' Relic numbers 
+- Shift 
+
+```{r}
+delivery_raw %>%
+  select(game, relic, delivered, user, notes) %>%
+  filter(!is.na(notes))
+
+delivery <-
+  delivery_raw %>%
+  filter(game == "Dune" & !(relic %in% c()))
+```
+
+
+```{r}
+ex_data <- 
+  tibble(
+    x = 1:100,
+    rate = 0.6
+  ) %>%
+  mutate(rate_error = abs(rnorm(n = n(), mean = 0, sd = 3)),
+         prod = x * rate + cumsum(rate_error),
+         deliv_error = rexp(n = n(), rate = 1/7),
+         deliv = prod + deliv_error)
+
+ex_data %>%
+  sample_n(30) %>%
+  ggplot(aes(x = x)) +
+  geom_point(aes(y = prod),
+             color = "grey") +
+  geom_point(aes(y = deliv))
+```
