@@ -68,16 +68,16 @@ c_list <- list(c_light, c_light_highlight, c_mid,
 ```{r}
 ex_data <- 
   tibble(
-    x = 1:75
+    relic = 1:75
   ) %>%
-  mutate(prod_error = rnorm(n = n(), mean = 0.6, sd = 0.1),
+  mutate(prod_error = rnorm(n = n(), mean = 0.6, sd = 1),
          prod = cumsum(prod_error),
-         ship_error = rexp(n = n(), rate = 1/1.5),
+         ship_error = rexp(n = n(), rate = 1/2),
          deliv = prod + ship_error,
          is_observed = row_number() %in% sample(1:50, size = 25, replace = FALSE))
 
 ex_data %>%
-  ggplot(aes(x = x)) +
+  ggplot(aes(x = relic)) +
   geom_point(aes(y = deliv, color = is_observed)) +
   scale_color_manual(guide = "none",
                      values = c("TRUE"= "#000000", "FALSE" = "#CCCCCC"))
@@ -146,7 +146,10 @@ writeLines(readLines(here("stan_programs/ship_random_walk.stan")))
 ```{r}
 stan_data <- list(
   N = nrow(ex_data),
-  delivery = ex_data$deliv
+  N_obs = sum(ex_data$is_observed),
+  relic_obs = ex_data$relic[ex_data$is_observed],
+  relic_unobs = ex_data$relic[!ex_data$is_observed],
+  delivery_obs = ex_data$deliv[ex_data$is_observed]
 )
 
 fit <- stan(
@@ -162,7 +165,6 @@ hist(extract(fit)$prod_sigma)
 hist(extract(fit)$ship_sigma)
 hist(extract(fit)$ship_lambda)
 
-plot(log(extract(fit)$prod_mu), log(extract(fit)$prod_sigma))
 as_tibble(extract(fit)) %>%
   select(starts_with(c("prod_", "ship_"))) %>%
   mutate(across(.cols = everything(),
@@ -171,19 +173,13 @@ as_tibble(extract(fit)) %>%
 
 # prior contraction
 # <go do betancourt's contraction thing>
-ggplot() +
-  geom_function(fun = dnorm, args = list(mean = 1, sd = 0.5)) +
-  geom_histogram(data = tibble(x = extract(fit)$prod_mu),
-                 aes(x = x, y = after_stat(..density..)),
-                 binwidth = 0.1) +
-  scale_x_continuous(limits = c(-5, 5))
 ```
 
 ```{r}
 idx <- rep(1:stan_data$N, each = 2)
 x <- sapply(X = 1:length(idx), 
             FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
-cred <- sapply(1:stan_data$N, \(i){quantile(extract(fit)$y[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+cred <- sapply(1:stan_data$N, \(i){quantile(extract(fit)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
 
 plot(1, type = "n", 
      xlim = range(x), ylim = range(cred),
@@ -195,8 +191,8 @@ for (i in 1:((nrow(cred) - 1)/2)) {
           col = c_list[[i]], border = NA)
 }
 lines(x, rep(cred[5, ], each = 2), 
-      col = c_dark, lwd = 3)
-points(x = stan_data$x_obs, y = stan_data$y,
+      col = c_dark, lwd = 1)
+points(x = 1:stan_data$N, y = stan_data$delivery,
        col = c_purple_trans, pch = 19)
 # lines(x, rep(stan_data$y, each = 2), 
 #       col = c_purple_trans, lwd = 3)
