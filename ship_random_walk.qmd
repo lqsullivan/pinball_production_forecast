@@ -95,7 +95,7 @@ writeLines(readLines(here("stan_programs/ship_random_walk_bayesian_ensemble.stan
 
 ```{r}
 fit_ensemble <- stan(
-  file = here("stan_programs/random_walk_bayesian_ensemble.stan"),
+  file = here("stan_programs/ship_random_walk_bayesian_ensemble.stan"),
   data = list(N = nrow(ex_data)),
   iter = 5000, chains = 2,
   warmup = 0, algorithm = "Fixed_param",
@@ -104,13 +104,13 @@ fit_ensemble <- stan(
 ```
 
 ```{r}
-idx <- rep(1:nrow(ex_data), each = 2)
-x <- sapply(X = 1:length(idx), 
-            FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
-cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$y[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+# idx <- rep(1:nrow(ex_data), each = 2)
+# x <- sapply(X = 1:length(idx), 
+#             FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
+# cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$y[ , i], probs = seq(0.1, 0.9, by = 0.1))})
 
 plot(1, type = "n", 
-     xlim = range(x), ylim = range(cred),
+     xlim = c(1, 75), ylim = range(extract(fit_ensemble)$production[1:20, ]),
      xlab = "y", main = "Prior Predictive")
 # for (i in 1:((nrow(cred) - 1)/2)) {
 #   polygon(x = c(x, rev(x)),
@@ -120,47 +120,60 @@ plot(1, type = "n",
 # }
 # lines(x, rep(cred[5, ], each = 2), 
 #       col = c_dark, lwd = 3)
-for (i in 1:50) {
+for (i in 1:20) {
   lines(x = 1:75,
-        y = extract(fit_ensemble)$y[i, ],
+        y = extract(fit_ensemble)$production[i, ],
         col = c_dark_trans, lwd = 2)
 }
+
+plot(1, type = "n", 
+     xlim = c(1, 75), ylim = range(extract(fit_ensemble)$production[1:20, ]),
+     xlab = "y", main = "Prior Predictive")
+lines(x = 1:75,
+      y = extract(fit_ensemble)$production[1, ],
+      col = c_dark_trans, lwd = 2)
+points(x = 1:75,
+       y = extract(fit_ensemble)$delivery[1, ],
+       col = c_dark_trans, pch = 19)
 ```
 
 # posterior retrodictive
 
 ```{r}
-writeLines(readLines(here("stan_programs/random_walk.stan")))
+writeLines(readLines(here("stan_programs/ship_random_walk.stan")))
 ```
 
 ```{r}
 stan_data <- list(
-  N     = nrow(ex_data),
-  N_obs = sum(ex_data$is_observed),
-  # indices of observed and unobserved measurements
-  x_obs = ex_data$x[ex_data$is_observed],
-  x_unobs = ex_data$x[!ex_data$is_observed],
-  # observed measurements
-  y_obs = ex_data$y[ex_data$is_observed]
+  N = nrow(ex_data),
+  delivery = ex_data$deliv
 )
 
 fit <- stan(
-  file = here("stan_programs/random_walk.stan"),
+  file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data,
   iter = 5000, chains = 2, refresh = 1000
 )
 ```
 
 ```{r}
-hist(extract(fit)$alpha)
-hist(extract(fit)$sigma)
+hist(extract(fit)$prod_mu)
+hist(extract(fit)$prod_sigma)
+hist(extract(fit)$ship_sigma)
+hist(extract(fit)$ship_lambda)
 
-plot(log(extract(fit)$alpha), log(extract(fit)$sigma))
+plot(log(extract(fit)$prod_mu), log(extract(fit)$prod_sigma))
+as_tibble(extract(fit)) %>%
+  select(starts_with(c("prod_", "ship_"))) %>%
+  mutate(across(.cols = everything(),
+                .fns  = log)) %>%
+  pairs()
 
 # prior contraction
+# <go do betancourt's contraction thing>
 ggplot() +
-  geom_function(fun = dnorm, args = list(mean = 0, sd = 1)) +
-  geom_histogram(data = tibble(x = extract(fit)$alpha),
+  geom_function(fun = dnorm, args = list(mean = 1, sd = 0.5)) +
+  geom_histogram(data = tibble(x = extract(fit)$prod_mu),
                  aes(x = x, y = after_stat(..density..)),
                  binwidth = 0.1) +
   scale_x_continuous(limits = c(-5, 5))
