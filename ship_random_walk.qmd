@@ -30,6 +30,7 @@ here::i_am("ship_random_walk.qmd")
 
 # stan options
 util <- new.env()
+rstan_options(auto_write = TRUE)
 source(here("mcmc_analysis_tools_rstan.R"), local = util)
 source(here("mcmc_visualization_tools.R"), local = util)
 
@@ -155,7 +156,7 @@ stan_data <- list(
 fit <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data,
-  iter = 5000, chains = 2, refresh = 1000
+  iter = 5000, chains = 4, cores = 4, refresh = 1000
 )
 ```
 
@@ -192,7 +193,7 @@ for (i in 1:((nrow(cred) - 1)/2)) {
 }
 lines(x, rep(cred[5, ], each = 2), 
       col = c_dark, lwd = 1)
-points(x = 1:stan_data$N, y = stan_data$delivery,
+points(x = stan_data$relic_obs, y = stan_data$delivery,
        col = c_purple_trans, pch = 19)
 # lines(x, rep(stan_data$y, each = 2), 
 #       col = c_purple_trans, lwd = 3)
@@ -200,4 +201,75 @@ points(x = 1:stan_data$N, y = stan_data$delivery,
 
 there's no latent measurement here like for rounding error so no more interesting summaries (i don't think?)
 
-next extend this to asymmetric error?
+# Dune
+
+use it on dune
+
+```{r}
+delivery_raw <- read_csv(here("data/raw/delivery_data.csv"))
+
+dune <- 
+  delivery_raw %>%
+  filter(game == "Dune", 
+         !is.na(relic),
+         !is.na(delivered),
+         !(relic %in% c(756, 711, 624))) %>%
+  mutate(delivered = as.integer(delivered - as.Date("2025-04-14")))
+```
+
+```{r}
+stan_data_dune <- list(
+  N = 720,
+  N_obs = nrow(dune),
+  relic_obs = dune$relic,
+  relic_unobs = setdiff(1:720, dune$relic),
+  delivery_obs = dune$delivered
+)
+
+fit_dune <- stan(
+  file = here("stan_programs/ship_random_walk.stan"),
+  data = stan_data_dune,
+  iter = 1000, chains = 1, cores = 1, refresh = 1000
+)
+```
+
+something's really wrong, are the chains not mixing?
+
+```{r}
+hist(extract(fit_dune)$prod_mu)
+hist(extract(fit_dune)$prod_sigma)
+hist(extract(fit_dune)$ship_sigma)
+hist(extract(fit_dune)$ship_lambda)
+
+as_tibble(extract(fit_dune)) %>%
+  # sample_n(5000) %>%
+  select(starts_with(c("prod_", "ship_"))) %>%
+  mutate(across(.cols = everything(),
+                .fns  = log)) %>%
+  pairs()
+```
+
+```{r}
+idx <- rep(1:stan_data_dune$N, each = 2)
+x <- sapply(X = 1:length(idx), 
+            FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
+cred <- sapply(1:stan_data_dune$N, \(i){quantile(extract(fit_dune)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+
+plot(x = 1, type = "n", 
+     xlim = range(x), 
+     ylim = range(cred),
+     # ylim = c(min(cred, stan_data_dune$delivery_obs),
+     #          max(cred, stan_data_dune$delivery_obs)),
+     xlab = "y", main = "Posterior Retrodictive")
+for (i in 1:((nrow(cred) - 1)/2)) {
+  polygon(x = c(x, rev(x)),
+          y = c(rep(cred[i, ], each = 2), 
+                rep(rev(cred[nrow(cred) - i + 1, ]), each = 2)),
+          col = c_list[[i]], border = NA)
+}
+lines(x, rep(cred[5, ], each = 2), 
+      col = c_dark, lwd = 1)
+points(x = stan_data_dune$relic_obs, 
+       y = rep(-20, times = stan_data_dune$N_obs), #stan_data_dune$delivery,
+       col = c_purple_trans, pch = 19)
+```

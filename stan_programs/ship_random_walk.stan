@@ -1,6 +1,9 @@
 data {
   int<lower=0> N;
-  vector[N] delivery;
+  int<lower=0> N_obs;
+  int<lower=1> relic_obs[N_obs];
+  int<lower=1> relic_unobs[N - N_obs];
+  vector[N_obs] delivery_obs;
 }
 
 parameters {
@@ -8,7 +11,15 @@ parameters {
   real<lower=0> prod_sigma;
   real<lower=0> ship_sigma;
   real<lower=0> ship_lambda;
+  
+  vector[N - N_obs] delivery_unobs;
   vector[N] production;
+}
+
+transformed parameters {
+  vector[N] delivery;
+  delivery[relic_obs] = delivery_obs;
+  delivery[relic_unobs] = delivery_unobs;
 }
 
 model {
