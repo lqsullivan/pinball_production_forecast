@@ -126,11 +126,17 @@ delivery_raw %>%
   select(game, relic, delivered, user, notes) %>%
   filter(!is.na(notes))
 
-delivery <-
+dune <- 
   delivery_raw %>%
-  filter(game == "Dune" & !(relic %in% c()))
+  filter(game == "Dune", 
+         !is.na(relic),
+         !is.na(delivered),
+         !(relic %in% c(756, 711, 624)))
 ```
 
+::: {.callout-tip}
+we have some missing relic or deliverydates, idk how to fit those in but could be a next step
+:::
 
 ```{r}
 ex_data <- 
