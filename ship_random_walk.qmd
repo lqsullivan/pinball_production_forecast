@@ -156,14 +156,14 @@ stan_data <- list(
 fit <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data,
-  iter = 5000, chains = 4, cores = 4, refresh = 1000
+  iter = 2000, chains = 2, cores = 2, refresh = 1000
 )
 ```
 
 ```{r}
+hist(extract(fit)$prod_delay)
 hist(extract(fit)$prod_mu)
 hist(extract(fit)$prod_sigma)
-hist(extract(fit)$ship_sigma)
 hist(extract(fit)$ship_lambda)
 
 as_tibble(extract(fit)) %>%
@@ -228,6 +228,13 @@ stan_data_dune <- list(
   delivery_obs = dune$delivered[dune$relic >= 500] - 335
 )
 
+plot(x = 1, type = "n", 
+     xlim = c(0, max(stan_data_dune$relic_obs)),
+     ylim = c(0, max(stan_data_dune$delivery)))
+points(x = stan_data_dune$relic_obs, 
+       y = stan_data_dune$delivery,
+       col = c_purple_trans, pch = 19)
+
 fit_dune <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data_dune,
@@ -274,6 +281,7 @@ lines(x, rep(cred[5, ], each = 2),
 points(x = stan_data_dune$relic_obs, 
        y = stan_data_dune$delivery,
        col = c_purple_trans, pch = 19)
+abline(a = 0, b = 0.6)
 
 plot(x = 1, type = "n", 
      xlim = c(0, max(stan_data_dune$relic_obs)),

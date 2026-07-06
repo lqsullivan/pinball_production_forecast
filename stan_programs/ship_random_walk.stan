@@ -7,6 +7,7 @@ data {
 }
 
 parameters {
+  real<lower=0> prod_delay;
   real<lower=0> prod_mu;
   real<lower=0> prod_sigma;
   real<lower=0> ship_sigma;
@@ -23,13 +24,14 @@ transformed parameters {
 }
 
 model {
+  prod_delay  ~ normal(20, 5);
   prod_mu     ~ normal(1, 0.5);
   prod_sigma  ~ normal(0, 2);
   ship_sigma  ~ normal(0, 0.5);
   ship_lambda ~ normal(0, 0.5);
   
   // if this degenerate exp_mod_normal doesn't work try shipping error first?
-  production[1]   ~ normal(prod_mu, prod_sigma);
+  production[1]   ~ normal(prod_delay, 0.1);
   production[2:N] ~ normal(prod_mu + production[1:(N-1)], prod_sigma);
   delivery ~ exp_mod_normal(production, ship_sigma, ship_lambda);
 }
