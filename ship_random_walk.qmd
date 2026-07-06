@@ -183,7 +183,7 @@ x <- sapply(X = 1:length(idx),
 cred <- sapply(1:stan_data$N, \(i){quantile(extract(fit)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
 
 plot(1, type = "n", 
-     xlim = range(x), ylim = range(cred),
+     xlim = c(0, max(x)), ylim = c(0, max(cred)),
      xlab = "y", main = "Posterior Retrodictive")
 for (i in 1:((nrow(cred) - 1)/2)) {
   polygon(x = c(x, rev(x)),
@@ -221,11 +221,11 @@ dune <-
 ```{r}
 # trying it with truncated real data
 stan_data_dune <- list(
-  N = 720 - 500,
-  N_obs = nrow(dune[dune$relic >= 500, ]),
-  relic_obs = dune$relic[dune$relic >= 500] - 500,
-  relic_unobs = setdiff(1:(720 - 500), dune$relic[dune$relic >= 500] - 500),
-  delivery_obs = dune$delivered[dune$relic >= 500] - 335
+  N = 300,
+  N_obs = nrow(dune[dune$relic <= 200, ]),
+  relic_obs = dune$relic[dune$relic <= 200],
+  relic_unobs = setdiff(1:300, dune$relic[dune$relic <= 200]),
+  delivery_obs = dune$delivered[dune$relic <= 200]
 )
 
 plot(x = 1, type = "n", 
@@ -245,6 +245,7 @@ fit_dune <- stan(
 something's really wrong, are the chains not mixing?
 
 ```{r}
+hist(extract(fit_dune)$prod_delay)
 hist(extract(fit_dune)$prod_mu)
 hist(extract(fit_dune)$prod_sigma)
 hist(extract(fit_dune)$ship_sigma)
@@ -265,8 +266,8 @@ x <- sapply(X = 1:length(idx),
 cred <- sapply(1:stan_data_dune$N, \(i){quantile(extract(fit_dune)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
 
 plot(x = 1, type = "n", 
-     xlim = range(x), 
-     ylim = range(cred),
+     xlim = c(0, max(x)), 
+     ylim = c(0, max(cred)),
      # ylim = c(min(cred, stan_data_dune$delivery_obs),
      #          max(cred, stan_data_dune$delivery_obs)),
      xlab = "y", main = "Posterior Retrodictive")
@@ -281,12 +282,11 @@ lines(x, rep(cred[5, ], each = 2),
 points(x = stan_data_dune$relic_obs, 
        y = stan_data_dune$delivery,
        col = c_purple_trans, pch = 19)
-abline(a = 0, b = 0.6)
 
-plot(x = 1, type = "n", 
-     xlim = c(0, max(stan_data_dune$relic_obs)),
-     ylim = c(0, max(stan_data_dune$delivery)))
-points(x = stan_data_dune$relic_obs, 
-       y = stan_data_dune$delivery,
-       col = c_purple_trans, pch = 19)
+# plot(x = 1, type = "n", 
+#      xlim = c(0, max(stan_data_dune$relic_obs)),
+#      ylim = c(0, max(stan_data_dune$delivery)))
+# points(x = stan_data_dune$relic_obs, 
+#        y = stan_data_dune$delivery,
+#        col = c_purple_trans, pch = 19)
 ```
