@@ -19,6 +19,7 @@ editor_options:
 ---
 
 ```{r}
+#| label: setup
 #| include: false
 
 library(tidyverse)
@@ -47,9 +48,7 @@ options(knitr.table.html.attr = "quarto-disable-processing=true")
 
 # inline content
 inline <- list()
-```
 
-```{r}
 c_light <- c("#D6EBEA")
 c_light_highlight <- c("#B5DBD9")
 c_mid <- c("#92CAC6")
@@ -64,22 +63,35 @@ c_list <- list(c_light, c_light_highlight, c_mid,
                  c_mid_highlight, c_dark, c_dark_highlight)
 ```
 
-# data
+# priors
+
+shipping delay should be bounded below at 0 with a long upper tail, 80% should be between say 0 and 15 days with median maybe 3. this is location dependent and we have location data so maybe we'll work that in later
+
+the production rate is specified here in terms of 'days per game' i think we need to be careful about this parameterization. our domain knowledge is in 'games per week', we might expect the 10/50/90 percentiles to be 5, 10, 20. That's about 0.3, 0.7, and 1.4 days per game. But as it gets below 0.3 the number of games per week becomes implausible, for example 0.1 = 70 games per week, so we want to really keep it far from 0. inverse gamma seems like a great idea
+
+# simulated dataset
 
 ```{r}
 ex_data <- 
   tibble(
-    relic = 1:75
+    relic = 1:720
   ) %>%
-  mutate(prod_error = rnorm(n = n(), mean = 0.6, sd = 1),
-         prod = cumsum(prod_error),
-         ship_error = rexp(n = n(), rate = 1/2),
+  mutate(prod_delay = 20,
+         prod_error = extraDistr::rinvgamma(n = n(), 2, 1),
+         prod = prod_delay + cumsum(prod_error),
+         ship_error = rexp(n = n(), rate = 1/7),
+         # ship_error = rexp(n = n(), rate = 1/5),
          deliv = prod + ship_error,
-         is_observed = row_number() %in% sample(1:50, size = 25, replace = FALSE))
+         is_observed = row_number() %in% sample(1:650, size = 300, replace = FALSE))
 
 ex_data %>%
   ggplot(aes(x = relic)) +
-  geom_point(aes(y = deliv, color = is_observed)) +
+  geom_point(data = . %>% filter(!is_observed),
+             aes(y = deliv, color = is_observed)) +
+  geom_line(data = . %>% filter(relic <= 650),
+            aes(y = prod)) +
+  geom_point(data = . %>% filter(is_observed),
+             aes(y = deliv, color = is_observed)) +
   scale_color_manual(guide = "none",
                      values = c("TRUE"= "#000000", "FALSE" = "#CCCCCC"))
 ```
@@ -98,7 +110,7 @@ writeLines(readLines(here("stan_programs/ship_random_walk_bayesian_ensemble.stan
 fit_ensemble <- stan(
   file = here("stan_programs/ship_random_walk_bayesian_ensemble.stan"),
   data = list(N = nrow(ex_data)),
-  iter = 5000, chains = 2,
+  iter = 5000, chains = 1,
   warmup = 0, algorithm = "Fixed_param",
   refresh = 1000
 )
@@ -109,9 +121,10 @@ fit_ensemble <- stan(
 # x <- sapply(X = 1:length(idx), 
 #             FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
 # cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$y[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+n <- ncol(extract(fit_ensemble)$production)
 
 plot(1, type = "n", 
-     xlim = c(1, 75), ylim = range(extract(fit_ensemble)$production[1:20, ]),
+     xlim = c(1, n), ylim = c(0, 300/0.5),
      xlab = "y", main = "Prior Predictive")
 # for (i in 1:((nrow(cred) - 1)/2)) {
 #   polygon(x = c(x, rev(x)),
@@ -122,20 +135,12 @@ plot(1, type = "n",
 # lines(x, rep(cred[5, ], each = 2), 
 #       col = c_dark, lwd = 3)
 for (i in 1:20) {
-  lines(x = 1:75,
+  lines(x = 1:n,
         y = extract(fit_ensemble)$production[i, ],
         col = c_dark_trans, lwd = 2)
 }
-
-plot(1, type = "n", 
-     xlim = c(1, 75), ylim = range(extract(fit_ensemble)$production[1:20, ]),
-     xlab = "y", main = "Prior Predictive")
-lines(x = 1:75,
-      y = extract(fit_ensemble)$production[1, ],
-      col = c_dark_trans, lwd = 2)
-points(x = 1:75,
-       y = extract(fit_ensemble)$delivery[1, ],
-       col = c_dark_trans, pch = 19)
+lines(x = 1:n,
+      y = 20 + 1:n * 1/0.7)
 ```
 
 # posterior retrodictive
@@ -143,6 +148,9 @@ points(x = 1:75,
 ```{r}
 writeLines(readLines(here("stan_programs/ship_random_walk.stan")))
 ```
+
+it works well for low volumes of simulated data but barfs when you get too many observations
+that's the only insight i have right now
 
 ```{r}
 stan_data <- list(
@@ -155,16 +163,23 @@ stan_data <- list(
 
 fit <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
-  data = stan_data,
-  iter = 2000, chains = 2, cores = 2, refresh = 1000
+  data = stan_data, 
+  # init = \(){list(prod_delay = 20, prod_mu = 1, prod_sigma = 0.2, ship_lambda = 1/3,
+  #                 delivery_unobs = stan_data$relic_unobs * 0.5,
+  #                 production = (1:stan_data$N) * 0.5,
+  #                 shipping = (1:stan_data$N) * 3)},
+  iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 500,
+  control = list(adapt_delta = 0.9, max_treedepth = 15)
 )
 ```
 
 ```{r}
+{par(mfrow = c(2, 2))
 hist(extract(fit)$prod_delay)
 hist(extract(fit)$prod_mu)
 hist(extract(fit)$prod_sigma)
 hist(extract(fit)$ship_lambda)
+par(mfrow = c(1, 1))}
 
 as_tibble(extract(fit)) %>%
   select(starts_with(c("prod_", "ship_"))) %>%
@@ -219,12 +234,22 @@ dune <-
 ```
 
 ```{r}
+a <- 
+  lm(formula = delivered ~ relic,
+     data = dune) %>%
+  residuals() %>%
+  `-`(., min(.))
+
+plot(sort(a), extraDistr::qhnorm(ppoints(a), 4))
+```
+
+```{r}
 # trying it with truncated real data
 stan_data_dune <- list(
-  N = 300,
+  N = 200,
   N_obs = nrow(dune[dune$relic <= 200, ]),
   relic_obs = dune$relic[dune$relic <= 200],
-  relic_unobs = setdiff(1:300, dune$relic[dune$relic <= 200]),
+  relic_unobs = setdiff(1:200, dune$relic[dune$relic <= 200]),
   delivery_obs = dune$delivered[dune$relic <= 200]
 )
 
@@ -238,7 +263,7 @@ points(x = stan_data_dune$relic_obs,
 fit_dune <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data_dune,
-  iter = 2000, chains = 1, cores = 1, refresh = 1000
+  iter = 1000, chains = 1, cores = 1, refresh = 1000
 )
 ```
 

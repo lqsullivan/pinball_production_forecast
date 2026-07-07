@@ -33,5 +33,5 @@ model {
   // if this degenerate exp_mod_normal doesn't work try shipping error first?
   production[1]   ~ normal(prod_delay, 0.1);
   production[2:N] ~ normal(prod_mu + production[1:(N-1)], prod_sigma);
-  delivery ~ exp_mod_normal(production, ship_sigma, ship_lambda);
+  delivery ~ exp_mod_normal(production, 0.1, ship_lambda);
 }
