@@ -251,7 +251,7 @@ fit <- stan(
   #                 production = (1:stan_data$N) * 0.5,
   #                 shipping = (1:stan_data$N) * 3)},
   iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 500,
-  control = list(adapt_delta = 0.9, max_treedepth = 12)
+  control = list(adapt_delta = 0.8, max_treedepth = 10)
 )
 ```
 
