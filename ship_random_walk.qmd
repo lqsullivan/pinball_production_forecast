@@ -65,30 +65,107 @@ c_list <- list(c_light, c_light_highlight, c_mid,
 
 # priors
 
-shipping delay should be bounded below at 0 with a long upper tail, 80% should be between say 0 and 15 days with median maybe 3. this is location dependent and we have location data so maybe we'll work that in later
+#### production delay
 
-the production rate is specified here in terms of 'days per game' i think we need to be careful about this parameterization. our domain knowledge is in 'games per week', we might expect the 10/50/90 percentiles to be 5, 10, 20. That's about 0.3, 0.7, and 1.4 days per game. But as it gets below 0.3 the number of games per week becomes implausible, for example 0.1 = 70 games per week, so we want to really keep it far from 0. inverse gamma seems like a great idea
+we need to pick a date to count from. it's somewhat arbitrary, especially since we may not observe the first game produced. one reasonable choice that's also makes the production delay interesting to estimate is the announcement date. so we'll treat all dates as days since game announcement then the intercept is the production delay after announcement. its possible for a company to produce games before annoucing it so they're ready to ship, so this should not be constrained to positive (even though in these cases we think they're positive)
+
+games started appearing in about a month for both dune and winchester (this is kind of double-dipping with production data, idk how big of a problem that is) so we'll say it's normally distributed with mean 25 and sd 10 so the 10/50/90 percentiles are
+
+```{r}
+round(qnorm(p = c(0.1, 0.5, 0.9), mean = 25, sd = 10), 1) %>%
+  setNames(scales::percent(c(0.1, 0.5, 0.9)))
+```
+
+#### production rate
+
+the production rate is specified here in terms of 'days per game' i think we need to be careful about this parameterization. our domain knowledge is in 'games per week', we might expect the 10/50/90 percentiles to be 5, 10, 20. That's about 0.3, 0.7, and 1.4 days per game. 
+
+this is also bounded below at 0, otherwise we're saying games take negative time to make (this may not be unreasonable in the model cause it could allow slight out-of-sequence production, possible if for example one game gets held up in quality control)
+
+first instinct might be to say the production rate is normal centered around 0.7, but as it gets below 0.3 the number of games per week becomes implausible, for example 0.1 = 70 games per week, so we want to really keep it far from 0. 
+
+```{r}
+probs <- c(0.01, 0.1, 0.5, 0.9, 0.99)
+round(qnorm(p = probs, mean = 0.7, sd = 0.4), 1) %>%
+  setNames(scales::percent(probs))
+
+round(quantile(7/rnorm(1e5, 0.7, 0.4), probs = probs)) %>%
+  setNames(scales::percent(probs))
+
+curve(dnorm(x, mean = 0.7, sd = 0.4),
+      xlim = c(-0.5, 2), xlab = "days per game",
+      yaxt = "n", ylab = NA)
+curve(expr = 1/x^2 * dnorm(1/x, mean = 0.7, sd = 0.4),
+      xlim = c(-5, 5), xlab = "days per game",
+      yaxt = "n", ylab = NA)
+```
+
+<talk about PDF and CDF of reciprocal normal, can simulate it for now>
+
+inverse gamma(2, 1) puts too much density on many games per week (rate too near zero)
+
+```{r}
+extraDistr::qinvgamma(p = probs, alpha = 2, beta = 1) %>%
+  `/`(7, .) %>%
+  round(., digits = 1) %>%
+  rev() %>%
+  setNames(scales::percent(probs))
+```
+
+inverse chisquared? note the parameterizations in extraDistr and STAN differ (extraDistr tau = stan tau^2) the documentation doesn't make that clear and write out the density function
+
+```{r}
+extraDistr::qinvchisq(p = probs, nu = 10, tau = 0.75^2) %>%
+  `/`(7, .) %>%
+  round(., digits = 1) %>%
+  rev() %>%
+  setNames(scales::percent(probs))
+```
+
+
+```{r}
+tibble(
+  x = extraDistr::rinvchisq(n = 1e4, nu = 10, tau = 0.75^2)
+) %>%
+  ggplot(aes(x = x)) +
+  geom_histogram(binwidth = 0.1) +
+  scale_x_continuous(limits = c(0, 4))
+
+tibble(
+  x = extraDistr::rinvchisq(n = 1e4, nu = 10, tau = 0.75^2),
+  y = 7/x
+) %>%
+  ggplot(aes(x = y)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(limits = c(0, 50))
+```
+
+#### production rate variation
+
+#### shipping delay
+
+shipping delay should be bounded below at 0 with a long upper tail, 80% should be between say 0 and 15 days with median maybe 3. this is location dependent and we have location data so maybe we'll work that in later
 
 # simulated dataset
 
 ```{r}
 ex_data <- 
   tibble(
-    relic = 1:720
+    relic = 1:300
   ) %>%
   mutate(prod_delay = 20,
-         prod_error = extraDistr::rinvgamma(n = n(), 2, 1),
+         prod_error = rnorm(n = n(), 0.7, 1),
          prod = prod_delay + cumsum(prod_error),
          ship_error = rexp(n = n(), rate = 1/7),
          # ship_error = rexp(n = n(), rate = 1/5),
          deliv = prod + ship_error,
-         is_observed = row_number() %in% sample(1:650, size = 300, replace = FALSE))
+         is_observed = row_number() %in% sample(1:200, size = 50, replace = FALSE))
 
 ex_data %>%
   ggplot(aes(x = relic)) +
   geom_point(data = . %>% filter(!is_observed),
              aes(y = deliv, color = is_observed)) +
-  geom_line(data = . %>% filter(relic <= 650),
+  geom_line(data = . %>% filter(relic <= 200),
             aes(y = prod)) +
   geom_point(data = . %>% filter(is_observed),
              aes(y = deliv, color = is_observed)) +
@@ -117,30 +194,35 @@ fit_ensemble <- stan(
 ```
 
 ```{r}
-# idx <- rep(1:nrow(ex_data), each = 2)
-# x <- sapply(X = 1:length(idx), 
-#             FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
-# cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$y[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+idx <- rep(1:nrow(ex_data), each = 2)
+x <- sapply(X = 1:length(idx),
+            FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
+cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
 n <- ncol(extract(fit_ensemble)$production)
 
 plot(1, type = "n", 
-     xlim = c(1, n), ylim = c(0, 300/0.5),
+     xlim = c(1, n), ylim = c(0, 150),
      xlab = "y", main = "Prior Predictive")
-# for (i in 1:((nrow(cred) - 1)/2)) {
-#   polygon(x = c(x, rev(x)),
-#           y = c(rep(cred[i, ], each = 2), 
-#                 rep(rev(cred[nrow(cred) - i + 1, ]), each = 2)),
-#           col = c_list[[i]], border = NA)
-# }
-# lines(x, rep(cred[5, ], each = 2), 
-#       col = c_dark, lwd = 3)
-for (i in 1:20) {
-  lines(x = 1:n,
-        y = extract(fit_ensemble)$production[i, ],
-        col = c_dark_trans, lwd = 2)
+for (i in 1:((nrow(cred) - 1)/2)) {
+  polygon(x = c(x, rev(x)),
+          y = c(rep(cred[i, ], each = 2),
+                rep(rev(cred[nrow(cred) - i + 1, ]), each = 2)),
+          col = c_list[[i]], border = NA)
 }
+lines(x, rep(cred[5, ], each = 2),
+      col = c_dark, lwd = 3)
 lines(x = 1:n,
-      y = 20 + 1:n * 1/0.7)
+      y = 20 + 1:n * 0.6)
+
+plot(1, type = "n", 
+     xlim = c(1, n), ylim = c(0, 150),
+     xlab = "y", main = "Prior Predictive")
+lines(x = 1:n,
+      y = extract(fit_ensemble)$production[2, ],
+      col = c_dark_trans, lwd = 2)
+points(x = 1:n,
+       y = extract(fit_ensemble)$delivery[2, ],
+       col = c_purple_trans)
 ```
 
 # posterior retrodictive
@@ -169,7 +251,7 @@ fit <- stan(
   #                 production = (1:stan_data$N) * 0.5,
   #                 shipping = (1:stan_data$N) * 3)},
   iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 500,
-  control = list(adapt_delta = 0.9, max_treedepth = 15)
+  control = list(adapt_delta = 0.9, max_treedepth = 12)
 )
 ```
 
@@ -234,28 +316,18 @@ dune <-
 ```
 
 ```{r}
-a <- 
-  lm(formula = delivered ~ relic,
-     data = dune) %>%
-  residuals() %>%
-  `-`(., min(.))
-
-plot(sort(a), extraDistr::qhnorm(ppoints(a), 4))
-```
-
-```{r}
 # trying it with truncated real data
 stan_data_dune <- list(
-  N = 200,
-  N_obs = nrow(dune[dune$relic <= 200, ]),
-  relic_obs = dune$relic[dune$relic <= 200],
-  relic_unobs = setdiff(1:200, dune$relic[dune$relic <= 200]),
-  delivery_obs = dune$delivered[dune$relic <= 200]
+  N = 720,
+  N_obs = nrow(dune),
+  relic_obs = dune$relic,
+  relic_unobs = setdiff(1:720, dune$relic),
+  delivery_obs = dune$delivered
 )
 
 plot(x = 1, type = "n", 
-     xlim = c(0, max(stan_data_dune$relic_obs)),
-     ylim = c(0, max(stan_data_dune$delivery)))
+     xlim = c(0, 720),
+     ylim = c(0, 720 * 0.8))
 points(x = stan_data_dune$relic_obs, 
        y = stan_data_dune$delivery,
        col = c_purple_trans, pch = 19)
