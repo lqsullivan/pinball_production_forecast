@@ -151,21 +151,20 @@ shipping delay should be bounded below at 0 with a long upper tail, 80% should b
 ```{r}
 ex_data <- 
   tibble(
-    relic = 1:300
+    relic = 1:720
   ) %>%
   mutate(prod_delay = 20,
          prod_error = rnorm(n = n(), 0.7, 1),
          prod = prod_delay + cumsum(prod_error),
-         ship_error = rexp(n = n(), rate = 1/7),
-         # ship_error = rexp(n = n(), rate = 1/5),
+         ship_error = 0, #rexp(n = n(), rate = 1/7),
          deliv = prod + ship_error,
-         is_observed = row_number() %in% sample(1:200, size = 50, replace = FALSE))
+         is_observed = row_number() %in% sample(1:500, size = 50, replace = FALSE))
 
 ex_data %>%
   ggplot(aes(x = relic)) +
   geom_point(data = . %>% filter(!is_observed),
              aes(y = deliv, color = is_observed)) +
-  geom_line(data = . %>% filter(relic <= 200),
+  geom_line(data = . %>% filter(relic <= 500),
             aes(y = prod)) +
   geom_point(data = . %>% filter(is_observed),
              aes(y = deliv, color = is_observed)) +
@@ -201,7 +200,7 @@ cred <- sapply(1:nrow(ex_data), \(i){quantile(extract(fit_ensemble)$production[ 
 n <- ncol(extract(fit_ensemble)$production)
 
 plot(1, type = "n", 
-     xlim = c(1, n), ylim = c(0, 150),
+     xlim = c(1, n), ylim = c(0, 720*1),
      xlab = "y", main = "Prior Predictive")
 for (i in 1:((nrow(cred) - 1)/2)) {
   polygon(x = c(x, rev(x)),
@@ -215,7 +214,7 @@ lines(x = 1:n,
       y = 20 + 1:n * 0.6)
 
 plot(1, type = "n", 
-     xlim = c(1, n), ylim = c(0, 150),
+     xlim = c(1, n), ylim = c(0, 720*1),
      xlab = "y", main = "Prior Predictive")
 lines(x = 1:n,
       y = extract(fit_ensemble)$production[2, ],
@@ -234,23 +233,29 @@ writeLines(readLines(here("stan_programs/ship_random_walk.stan")))
 it works well for low volumes of simulated data but barfs when you get too many observations
 that's the only insight i have right now
 
+we probably need to mean-shift the exponential here
+
+$$
+\begin{align}
+\ell &= \log \bigg( \prod_{i=1}^{n} \lambda e^{-\lambda(x - \mu)} \bigg) \\
+\ell &= n \log(\lambda) - \lambda \sum_{i=1}^{n} (x - \mu) \\
+\end{align}
+$$
+
 ```{r}
 stan_data <- list(
   N = nrow(ex_data),
   N_obs = sum(ex_data$is_observed),
   relic_obs = ex_data$relic[ex_data$is_observed],
   relic_unobs = ex_data$relic[!ex_data$is_observed],
-  delivery_obs = ex_data$deliv[ex_data$is_observed]
+  production_obs = ex_data$deliv[ex_data$is_observed]
+  # delivery_obs = ex_data$deliv[ex_data$is_observed]
 )
 
 fit <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
-  data = stan_data, 
-  # init = \(){list(prod_delay = 20, prod_mu = 1, prod_sigma = 0.2, ship_lambda = 1/3,
-  #                 delivery_unobs = stan_data$relic_unobs * 0.5,
-  #                 production = (1:stan_data$N) * 0.5,
-  #                 shipping = (1:stan_data$N) * 3)},
-  iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 500,
+  data = stan_data,
+  iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 1000,
   control = list(adapt_delta = 0.8, max_treedepth = 10)
 )
 ```
@@ -259,7 +264,6 @@ fit <- stan(
 {par(mfrow = c(2, 2))
 hist(extract(fit)$prod_delay)
 hist(extract(fit)$prod_mu)
-hist(extract(fit)$prod_sigma)
 hist(extract(fit)$ship_lambda)
 par(mfrow = c(1, 1))}
 
@@ -290,8 +294,9 @@ for (i in 1:((nrow(cred) - 1)/2)) {
 }
 lines(x, rep(cred[5, ], each = 2), 
       col = c_dark, lwd = 1)
-points(x = stan_data$relic_obs, y = stan_data$delivery,
+points(x = stan_data$relic_obs, y = stan_data$production_obs,
        col = c_purple_trans, pch = 19)
+lines(ex_data$relic, ex_data$prod)
 # lines(x, rep(stan_data$y, each = 2), 
 #       col = c_purple_trans, lwd = 3)
 ```

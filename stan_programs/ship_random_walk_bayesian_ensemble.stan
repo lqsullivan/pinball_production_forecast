@@ -14,7 +14,7 @@ generated quantities {
   prod_mu     = scaled_inv_chi_square_rng(10, 0.75);
   prod_sigma  = fabs(normal_rng(0, 2));   //  
   // ship_sigma  ~ normal(0, 1);
-  ship_lambda = fabs(normal_rng(0, 0.5));
+  ship_lambda = fabs(normal_rng(0, 0.2));
   
   production[1] = prod_delay + normal_rng(0, 0.1);
   delivery[1]   = production[1] + exponential_rng(ship_lambda);
