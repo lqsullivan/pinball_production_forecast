@@ -14,7 +14,6 @@ parameters {
   
   vector[N-1] production_after_first;
   vector[N-N_obs] delivery_unobs;
-  vector<lower=0>[N-N_obs] shipping_time_unobs;
 }
 
 transformed parameters {
@@ -22,13 +21,9 @@ transformed parameters {
   production[1] = prod_delay;
   production[2:N] = production_after_first;
   
-  vector<lower=0>[N] shipping_time;
-  shipping_time[relic_obs] = delivery_obs - production[relic_obs];
-  shipping_time[relic_unobs] = shipping_time_unobs;
-  
   vector[N] delivery;
   delivery[relic_obs] = delivery_obs;
-  delivery[relic_unobs] = production[relic_unobs] + shipping_time[relic_unobs];
+  delivery[relic_unobs] = delivery_unobs;
 }
 
 model {
@@ -37,7 +32,7 @@ model {
   prod_sigma  ~ normal(0, 1);
   ship_lambda ~ normal(0, 0.5);
   
-  // if this degenerate exp_mod_normal doesn't work try shipping error first?
   production[2:N] ~ normal(prod_mu + production[1:(N-1)], prod_sigma);
-  shipping_time ~ exponential(ship_lambda);
+  delivery ~ normal(production, ship_lambda);
+  // delivery ~ exp_mod_normal(production, 0.1, ship_lambda);
 }

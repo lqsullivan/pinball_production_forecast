@@ -151,20 +151,20 @@ shipping delay should be bounded below at 0 with a long upper tail, 80% should b
 ```{r}
 ex_data <- 
   tibble(
-    relic = 1:100
+    relic = 1:150
   ) %>%
   mutate(prod_delay = 20,
          prod_error = rnorm(n = n(), 0.7, 1),
          prod = prod_delay + cumsum(prod_error),
-         ship_error = rexp(n = n(), rate = 1/7),
+         ship_error = rnorm(n = n(), 0, 3),# rexp(n = n(), rate = 1/7),
          deliv = prod + ship_error,
-         is_observed = row_number() %in% sample(1:75, size = 30, replace = FALSE))
+         is_observed = row_number() %in% sample(1:100, size = 50, replace = FALSE))
 
 ex_data %>%
   ggplot(aes(x = relic)) +
   geom_point(data = . %>% filter(!is_observed),
              aes(y = deliv, color = is_observed)) +
-  geom_line(data = . %>% filter(relic <= 75),
+  geom_line(data = . %>% filter(relic <= 100),
             aes(y = prod)) +
   geom_point(data = . %>% filter(is_observed),
              aes(y = deliv, color = is_observed)) +
@@ -267,9 +267,7 @@ hist(extract(fit)$ship_lambda)
 par(mfrow = c(1, 1))}
 
 as_tibble(extract(fit)) %>%
-  select(starts_with(c("prod_", "ship_"))) %>%
-  mutate(across(.cols = everything(),
-                .fns  = log)) %>%
+  select(starts_with(c("prod_", "ship_", "lp_"))) %>%
   pairs()
 
 # prior contraction
