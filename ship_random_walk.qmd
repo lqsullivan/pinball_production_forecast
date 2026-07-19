@@ -151,20 +151,20 @@ shipping delay should be bounded below at 0 with a long upper tail, 80% should b
 ```{r}
 ex_data <- 
   tibble(
-    relic = 1:150
+    relic = 1:720
   ) %>%
   mutate(prod_delay = 20,
          prod_error = rnorm(n = n(), 0.7, 1),
          prod = prod_delay + cumsum(prod_error),
          ship_error = rexp(n = n(), rate = 1/7),
          deliv = prod + ship_error,
-         is_observed = row_number() %in% sample(1:100, size = 50, replace = FALSE))
+         is_observed = row_number() %in% sample(1:650, size = 35, replace = FALSE))
 
 ex_data %>%
   ggplot(aes(x = relic)) +
   geom_point(data = . %>% filter(!is_observed),
              aes(y = deliv, color = is_observed)) +
-  geom_line(data = . %>% filter(relic <= 100),
+  geom_line(data = . %>% filter(relic <= 650),
             aes(y = prod)) +
   geom_point(data = . %>% filter(is_observed),
              aes(y = deliv, color = is_observed)) +
@@ -254,15 +254,15 @@ stan_data <- list(
 fit <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data,
-  iter = 2000, chains = 1, cores = 1, refresh = 1000, warmup = 1000,
+  iter = 5000, chains = 1, cores = 1, refresh = 1000, warmup = 2000,
   control = list(adapt_delta = 0.8, max_treedepth = 10)
 )
 ```
 
 ```{r}
 {par(mfrow = c(2, 2))
-hist(extract(fit)$prod_delay)
 hist(extract(fit)$prod_mu)
+hist(extract(fit)$prod_sigma)
 hist(extract(fit)$ship_lambda)
 par(mfrow = c(1, 1))}
 
@@ -356,18 +356,19 @@ points(x = stan_data_dune$relic_obs,
 fit_dune <- stan(
   file = here("stan_programs/ship_random_walk.stan"),
   data = stan_data_dune,
-  iter = 1000, chains = 1, cores = 1, refresh = 1000
+  iter = 5000, chains = 1, cores = 1, refresh = 1000
 )
 ```
 
 something's really wrong, are the chains not mixing?
 
 ```{r}
+par(mfrow = c(2, 2))
 hist(extract(fit_dune)$prod_delay)
 hist(extract(fit_dune)$prod_mu)
 hist(extract(fit_dune)$prod_sigma)
-hist(extract(fit_dune)$ship_sigma)
 hist(extract(fit_dune)$ship_lambda)
+par(mfrow = c(1, 1))
 
 as_tibble(extract(fit_dune)) %>%
   # sample_n(5000) %>%
@@ -382,29 +383,76 @@ idx <- rep(1:stan_data_dune$N, each = 2)
 x <- sapply(X = 1:length(idx), 
             FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}})
 cred <- sapply(1:stan_data_dune$N, \(i){quantile(extract(fit_dune)$production[ , i], probs = seq(0.1, 0.9, by = 0.1))})
+cred_date <- cred + as.Date("2025-04-14")
+```
 
+```{r}
+par(mar = c(5, 2, 4, 7.5) + 0.1)
 plot(x = 1, type = "n", 
-     xlim = c(0, max(x)), 
-     ylim = c(0, max(cred)),
-     # ylim = c(min(cred, stan_data_dune$delivery_obs),
-     #          max(cred, stan_data_dune$delivery_obs)),
-     xlab = "y", main = "Posterior Retrodictive")
-for (i in 1:((nrow(cred) - 1)/2)) {
+     xlim = c(1, max(x)), ylim = c(as.Date("2025-04-14"), max(cred_date)),
+     yaxt = "n", xaxs = "i",
+     xlab = "relic", ylab = "", main = "Dune Production Forecast")
+axis(side = 4, 
+     at = seq.Date(from = as.Date("2025-04-14"), max(cred_date), by = "1 months"),
+     labels = format.Date(x = seq.Date(from = as.Date("2025-04-14"), max(cred_date), by = "1 months"),  
+                          format = "%b %Y"),
+     cex.axis = 1, las = 1)
+mtext(text = "date", side = 4, line = 5.5)
+for (i in 1:((nrow(cred_date) - 1)/2)) {
   polygon(x = c(x, rev(x)),
-          y = c(rep(cred[i, ], each = 2), 
-                rep(rev(cred[nrow(cred) - i + 1, ]), each = 2)),
+          y = c(rep(cred_date[i, ], each = 2), 
+                rep(rev(cred_date[nrow(cred_date) - i + 1, ]), each = 2)),
           col = c_list[[i]], border = NA)
 }
-lines(x, rep(cred[5, ], each = 2), 
+lines(x, rep(cred_date[5, ], each = 2), 
       col = c_dark, lwd = 1)
+abline(h = Sys.Date(), col = "grey60", lty = 2)
 points(x = stan_data_dune$relic_obs, 
-       y = stan_data_dune$delivery,
-       col = c_purple_trans, pch = 19)
+       y = stan_data_dune$delivery + as.Date("2025-04-14"),
+       col = c_purple_trans, pch = 19, cex = 0.7)
+par(mar = c(5, 4, 4, 2) + 0.1)
+```
 
-# plot(x = 1, type = "n", 
-#      xlim = c(0, max(stan_data_dune$relic_obs)),
-#      ylim = c(0, max(stan_data_dune$delivery)))
-# points(x = stan_data_dune$relic_obs, 
-#        y = stan_data_dune$delivery,
-#        col = c_purple_trans, pch = 19)
+```{r}
+cred_last_deliv <- quantile(extract(fit_dune)$delivery[ , 675], probs = seq(0.1, 0.9, by = 0.1))
+cred_last_deliv_date <- cred_last_deliv + as.Date("2025-04-14")
+cred_last_prod <- quantile(extract(fit_dune)$production[ , 675], probs = seq(0.1, 0.9, by = 0.1))
+cred_last_prod_date <- cred_last_prod + as.Date("2025-04-14")
+
+par(mar = c(5, 2, 4, 7.5) + 0.1)
+plot(x = 1, type = "n", 
+     xlim = 675 + c(-1, 1) * 0.2, ylim = c(as.Date("2026-06-01"), max(cred_last_deliv_date)),
+     xaxt = "n", xaxs = "i", yaxt = "n", yaxs = "i",
+     xlab = "", ylab = "", main = "Dune Last Game Forecast")
+axis(side = 1,
+     at = 675 + c(-1, 1) * 0.1,
+     labels = c("production", "delivery"))
+axis(side = 4, 
+     at = seq.Date(from = as.Date("2025-04-14"), max(cred_date), by = "1 week"),
+     labels = format.Date(x = seq.Date(from = as.Date("2025-04-14"), max(cred_date), by = "1 week"),  
+                          format = "%d %b"),
+     cex.axis = 1, las = 1)
+mtext(text = "production date", side = 4, line = 5.5)
+for (i in 1:((length(cred_last_prod_date) - 1)/2)) {
+  polygon(x = c(c(675 - 0.1 - 0.07, 675 - 0.1 + 0.07,
+                rev(c(675 - 0.1 - 0.07, 675 - 0.1 + 0.07)))),
+          y = c(rep(cred_last_prod_date[i], each = 2), 
+                rep(rev(cred_last_prod_date[length(cred_last_prod_date) - i + 1]), each = 2)),
+          col = c_list[[i]], border = NA)
+  polygon(x = c(c(675 + 0.1 - 0.07, 675 + 0.1 + 0.07,
+                rev(c(675 + 0.1 - 0.07, 675 + 0.1 + 0.07)))),
+          y = c(rep(cred_last_deliv_date[i], each = 2), 
+                rep(rev(cred_last_deliv_date[length(cred_last_deliv_date) - i + 1]), each = 2)),
+          col = c_list[[i]], border = NA)
+}
+lines(c(675 - 0.1 - 0.07, 675 - 0.1 + 0.07), 
+      rep(cred_last_prod_date[5], each = 2), 
+      col = c_dark, lwd = 1)
+lines(c(675 + 0.1 - 0.07, 675 + 0.1 + 0.07), 
+      rep(cred_last_deliv_date[5], each = 2), 
+      col = c_dark, lwd = 1)
+segments(x0 = 675 - 0.1 - 0.07, y0 = as.Date("2026-07-16"),
+         x1 = 675 - 0.1 + 0.07, y1 = as.Date("2026-07-16"),
+         lty = 2, col = "#000000", pch = 19, cex = 0.7)
+par(mar = c(5, 4, 4, 2) + 0.1)
 ```

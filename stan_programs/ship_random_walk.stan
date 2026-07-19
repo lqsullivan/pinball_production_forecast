@@ -29,7 +29,7 @@ transformed parameters {
 model {
   prod_delay  ~ normal(20, 5);
   prod_mu     ~ scaled_inv_chi_square(10, 0.75);
-  prod_sigma  ~ normal(0, 1);
+  prod_sigma  ~ normal(0, 2);
   ship_lambda ~ normal(0, 0.5);
 
   production[1] ~ normal(prod_delay, prod_sigma);
