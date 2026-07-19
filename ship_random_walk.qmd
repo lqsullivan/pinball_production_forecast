@@ -156,7 +156,7 @@ ex_data <-
   mutate(prod_delay = 20,
          prod_error = rnorm(n = n(), 0.7, 1),
          prod = prod_delay + cumsum(prod_error),
-         ship_error = rnorm(n = n(), 0, 3),# rexp(n = n(), rate = 1/7),
+         ship_error = rexp(n = n(), rate = 1/7),
          deliv = prod + ship_error,
          is_observed = row_number() %in% sample(1:100, size = 50, replace = FALSE))
 
@@ -282,7 +282,7 @@ cred <- sapply(1:stan_data$N, \(i){quantile(extract(fit)$production[ , i], probs
 
 plot(1, type = "n", 
      xlim = c(0, max(x)), ylim = c(0, max(cred)),
-     xlab = "y", main = "Posterior Retrodictive")
+     xlab = "relic", ylab = "time", main = "")
 for (i in 1:((nrow(cred) - 1)/2)) {
   polygon(x = c(x, rev(x)),
           y = c(rep(cred[i, ], each = 2), 
