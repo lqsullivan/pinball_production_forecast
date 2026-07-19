@@ -410,6 +410,44 @@ points(x = stan_data_dune$relic_obs,
 par(mar = c(5, 4, 4, 2) + 0.1)
 ```
 
+'detrended' production forecast using the median for intercept and slope
+there's a better way to do this, i want to show how the fit changes over relic
+
+```{r}
+fit_line <- (median(extract(fit_dune)[["prod_delay"]]) + 1:720 * median(extract(fit_dune)[["prod_mu"]]))
+cred_date_detrended <- 
+  cred - matrix(rep(x = fit_line, times = 9), nrow = 9, byrow = TRUE)
+
+par(mar = c(5, 2, 4, 7.5) + 0.1)
+plot(x = 1, type = "n", 
+     xlim = c(1, max(x)), ylim = c(min(cred_date_detrended), max(cred_date_detrended)),
+     yaxt = "n", xaxs = "i",
+     xlab = "relic", ylab = "", main = "Dune Production Forecast")
+axis(side = 4, 
+     at = seq.Date(from = min(cred_date_detrended) - fit_line[720] + as.Date("2025-04-14"), 
+                   to   = max(cred_date_detrended) - fit_line[720] + as.Date("2025-04-14"), 
+                   by = "1 months"),
+     labels = format.Date(x = seq.Date(from = min(cred_date_detrended) - fit_line[720] + as.Date("2025-04-14"), 
+                                       to   = max(cred_date_detrended) - fit_line[720] + as.Date("2025-04-14"), 
+                                       by = "1 months"),  
+                          format = "%b %Y"),
+     cex.axis = 1, las = 1)
+mtext(text = "date", side = 4, line = 5.5)
+for (i in 1:((nrow(cred_date) - 1)/2)) {
+  polygon(x = c(x, rev(x)),
+          y = c(rep(cred_date_detrended[i, ], each = 2), 
+                rep(rev(cred_date_detrended[nrow(cred_date_detrended) - i + 1, ]), each = 2)),
+          col = c_list[[i]], border = NA)
+}
+lines(x, rep(cred_date[5, ], each = 2), 
+      col = c_dark, lwd = 1)
+abline(h = Sys.Date(), col = "grey60", lty = 2)
+points(x = stan_data_dune$relic_obs, 
+       y = stan_data_dune$delivery + as.Date("2025-04-14"),
+       col = c_purple_trans, pch = 19, cex = 0.7)
+par(mar = c(5, 4, 4, 2) + 0.1)
+```
+
 ```{r}
 cred_last_deliv <- quantile(extract(fit_dune)$delivery[ , 720], probs = seq(0.1, 0.9, by = 0.1))
 cred_last_deliv_date <- cred_last_deliv + as.Date("2025-04-14")
@@ -446,93 +484,17 @@ for (i in 1:((length(cred_last_prod_date) - 1)/2)) {
 }
 lines(c(720 - 0.1 - 0.07, 720 - 0.1 + 0.07), 
       rep(cred_last_prod_date[5], each = 2), 
-      col = c_dark, lwd = 1)
+      col = c_dark, lwd = 3)
 lines(c(720 + 0.1 - 0.07, 720 + 0.1 + 0.07), 
       rep(cred_last_deliv_date[5], each = 2), 
-      col = c_dark, lwd = 1)
+      col = c_dark, lwd = 3)
 abline(h = Sys.Date(), lty = 2)
 par(mar = c(5, 4, 4, 2) + 0.1)
 ```
 
-## forecast last game over time
-
-```{r}
-pred_seq <- 
-  matrix(data = rep(NA, times = 9 * nrow(dune)),
-         nrow = 9, ncol = nrow(dune))
-for (i in 1:nrow(dune)) {
-  cat(i, "of", nrow(dune), "\t\r")
-  dune_partial <-
-    dune %>%
-    arrange(delivered) %>%
-    `[`(1:i, )
-  
-  stan_data_dune_partial <- list(
-    N = 720,
-    N_obs = nrow(dune_partial),
-    relic_obs = dune_partial$relic,
-    relic_unobs = setdiff(1:720, dune_partial$relic),
-    delivery_obs = dune_partial$delivered
-  )
-  
-  fit_dune_partial <- stan(
-    file = here("stan_programs/ship_random_walk.stan"),
-    data = stan_data_dune_partial,
-    iter = 1500, chains = 1, cores = 1, refresh = 500
-  )
-  
-  pred_seq[ , i] <- quantile(extract(fit_dune_partial)$production[ , 720], probs = seq(0.1, 0.9, by = 0.1)) + as.Date("2025-04-14")
-}
-```
-
-```{r}
-idx <- rep(1:ceiling(max(stan_data$delivery_obs)), each = 2)
-x <- sapply(X = 1:length(idx), 
-            FUN = \(b){if(b %% 2 == 0) {idx[b] + 0.5} else {idx[b] - 0.5}}) + as.Date("2025-04-14")
-
-par(mar = c(5, 2, 4, 7.5) + 0.1)
-plot(x = 1, type = "n", 
-     xlim = range(x, na.rm = TRUE), 
-     ylim = as.Date(c(min(pred_seq, na.rm = TRUE), max(pred_seq, na.rm = TRUE))),
-     xaxt = "n", xaxs = "i", yaxt = "n",
-     xlab = "forecast date", ylab = "game 675", main = "Dune Production Forecast")
-axis(side = 1, 
-     at = seq.Date(from = as.Date(min(x, na.rm = TRUE)), 
-                   to   = as.Date(max(x, na.rm = TRUE)), 
-                   by = "1 month"),
-     labels = format.Date(x = seq.Date(from = as.Date(min(x, na.rm = TRUE)), 
-                                       to   = as.Date(max(x, na.rm = TRUE)), 
-                                       by = "1 month"),  
-                          format = "%b %Y"),
-     cex.axis = 1, las = 1)
-axis(side = 4, 
-     at = seq.Date(from = as.Date(min(pred_seq, na.rm = TRUE)), 
-                   to   = as.Date(max(pred_seq, na.rm = TRUE)), 
-                   by = "1 month"),
-     labels = format.Date(x = seq.Date(from = as.Date(min(pred_seq, na.rm = TRUE)), 
-                                       to   = as.Date(max(pred_seq, na.rm = TRUE)), 
-                                       by = "1 month"),  
-                          format = "%b %Y"),
-     cex.axis = 1, las = 1)
-mtext(text = "game 675 production date", side = 4, line = 5.5)
-for (j_raw in 1:max(idx)) {
-  # find most recent prediction
-  j <- max(which(stan_data$delivery_obs <= j_raw))
-  for (i in 1:((nrow(pred_seq) - 1)/2)) {
-    polygon(x = c(x[(2*j_raw-1):(2*j_raw)], rev(x[(2*j_raw-1):(2*j_raw)])),
-            y = as.Date(c(rep(pred_seq[i, j], times = 2),
-                          rep(pred_seq[nrow(pred_seq) - i + 1, j], times = 2))),
-            col = c_list[[i]], border = NA)
-  }
-  lines(x = x[(2*j_raw-1):(2*j_raw)], 
-        y = rep(pred_seq[5, j], each = 2), 
-      col = c_dark, lwd = 1)
-}
-abline(h = as.Date("2026-07-16"), col = "grey60", lty = 2)
-rug(x = stan_data$delivery_obs + as.Date("2025-04-01"))
-par(mar = c(5, 4, 4, 2) + 0.1)
-```
+# future stuff
 
 how to account for not observing a game in a while? can i add a parameter for today and make the delivery unobserved lower that? no cause there's underreporting, no post doesn't mean no game. but we could try to model underreporting? 
 
 also probably a better way to update the forecast. is there an efficient way to do this for every day?
+could also maybe change the parameterization and not predict every relic production?
